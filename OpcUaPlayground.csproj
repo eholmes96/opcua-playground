@@ -11,6 +11,10 @@
 
     <!-- Shown on the exe, the taskbar and the shortcut. -->
     <ApplicationIcon>Resources\AppIcon.ico</ApplicationIcon>
+
+    <!-- A build records the folder it was made in, e.g. in the debug-symbol path. Map it to a
+         neutral one so a released exe doesn't carry this machine's folder or user names. -->
+    <PathMap>$(MSBuildProjectDirectory)=/_/</PathMap>
   </PropertyGroup>
 
   <!-- So the file's properties say what it is rather than nothing at all. -->
