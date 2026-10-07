@@ -1,0 +1,583 @@
+<Window x:Class="OpcUaPlayground.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:OpcUaPlayground.Controls"
+        Title="OPC UA Playground"
+        Icon="Resources/AppIcon.ico"
+        Width="1280" Height="760" MinWidth="1080" MinHeight="620"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource Brush.Background}"
+        Foreground="{StaticResource Brush.TextPrimary}"
+        UseLayoutRounding="True"
+        TextOptions.TextFormattingMode="Display">
+    <Window.InputBindings>
+        <KeyBinding Key="N" Modifiers="Control" Command="{x:Static ApplicationCommands.New}"/>
+        <KeyBinding Key="O" Modifiers="Control" Command="{x:Static ApplicationCommands.Open}"/>
+        <KeyBinding Key="S" Modifiers="Control" Command="{x:Static ApplicationCommands.Save}"/>
+        <KeyBinding Key="S" Modifiers="Control+Shift" Command="{x:Static ApplicationCommands.SaveAs}"/>
+    </Window.InputBindings>
+    <Window.CommandBindings>
+        <CommandBinding Command="{x:Static ApplicationCommands.New}" Executed="NewTagSet_Executed"/>
+        <CommandBinding Command="{x:Static ApplicationCommands.Open}" Executed="OpenTagSet_Executed"/>
+        <CommandBinding Command="{x:Static ApplicationCommands.Save}" Executed="SaveTagSet_Executed"/>
+        <CommandBinding Command="{x:Static ApplicationCommands.SaveAs}" Executed="SaveTagSetAs_Executed"/>
+    </Window.CommandBindings>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- ===================== Menu ===================== -->
+        <Menu Grid.Row="0" BorderThickness="0">
+            <MenuItem Header="_File">
+                <MenuItem x:Name="NewTagSetMenuItem" Header="_New tag set"
+                          InputGestureText="Ctrl+N" Click="NewTagSet_Click"/>
+                <MenuItem x:Name="OpenTagSetMenuItem" Header="_Open tag set..."
+                          InputGestureText="Ctrl+O" Click="OpenTagSet_Click"/>
+                <Separator/>
+                <MenuItem x:Name="SaveTagSetMenuItem" Header="_Save"
+                          InputGestureText="Ctrl+S" Click="SaveTagSet_Click"/>
+                <MenuItem x:Name="SaveTagSetAsMenuItem" Header="Save _as..."
+                          InputGestureText="Ctrl+Shift+S" Click="SaveTagSetAs_Click"/>
+                <Separator/>
+                <MenuItem Header="E_xit" Click="Exit_Click"/>
+            </MenuItem>
+
+            <!-- The five most recent files are added below From CSV in code. See MainWindow.Import.cs. -->
+            <MenuItem x:Name="DescriptionsMenu" Header="_Descriptions">
+                <MenuItem x:Name="ImportDescriptionsMenuItem" Header="From _CSV"
+                          Click="ImportDescriptions_Click"/>
+            </MenuItem>
+        </Menu>
+
+        <!-- ===================== Toolbar ===================== -->
+        <Border Grid.Row="1" Background="{StaticResource Brush.PanelDeep}"
+                BorderBrush="{StaticResource Brush.Border}" BorderThickness="0,0,0,1"
+                Padding="10,8">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+
+                <!-- Network -->
+                <ComboBox x:Name="AdapterComboBox" Width="240"
+                          DisplayMemberPath="DisplayName"
+                          ToolTip="Network adapter used to reach the controller"/>
+                <Button x:Name="RefreshAdaptersButton" Content="⟳"
+                        Width="30" MinHeight="30" Padding="0" Margin="6,0,0,0"
+                        ToolTip="Refresh adapter list"
+                        Click="RefreshAdaptersButton_Click"/>
+
+                <Rectangle Width="1" Margin="14,2" Fill="{StaticResource Brush.Border}"/>
+
+                <!-- Address and slot -->
+                <TextBlock Text="IP" Style="{StaticResource FieldLabel}"/>
+                <controls:IpAddressBox x:Name="IpBox"
+                                       ToolTip="Address of the controller, or of the bridge in front of it"/>
+
+                <TextBlock Text="Slot" Style="{StaticResource FieldLabel}" Margin="14,0,6,0"/>
+                <TextBox x:Name="SlotTextBox" Width="46" MaxLength="2" TextAlignment="Center" Text="0"
+                         ToolTip="Backplane slot of the processor. 0 to 16, since a 1756-A17 has seventeen slots."/>
+
+                <Button x:Name="ConnectButton" Content="Connect" MinWidth="92" Margin="12,0,0,0"
+                        IsEnabled="False"
+                        Style="{StaticResource AccentButton}"
+                        ToolTip="Reach the controller at this address. Nothing is sent until you press this."
+                        Click="ConnectButton_Click"/>
+
+                <Rectangle Width="1" Margin="14,2" Fill="{StaticResource Brush.Border}"/>
+
+                <!-- Status light -->
+                <controls:StatusLight x:Name="ConnectionLight" VerticalAlignment="Center"/>
+
+                <Rectangle Width="1" Margin="14,2" Fill="{StaticResource Brush.Border}"/>
+
+                <!-- Scan rate -->
+                <TextBlock Text="Scan" Style="{StaticResource FieldLabel}"/>
+                <TextBox x:Name="ScanRateTextBox" Width="64" MaxLength="5" TextAlignment="Right" Text="250"
+                         ToolTip="Default poll interval given to each tag as it is added. Rows can be changed individually."/>
+                <TextBlock Text="ms" Foreground="{StaticResource Brush.TextSecondary}"
+                           VerticalAlignment="Center" Margin="6,0,0,0"/>
+
+                <Button x:Name="ResetScanRatesButton" Content="Reset" MinWidth="66" Margin="10,0,0,0"
+                        IsEnabled="False"
+                        ToolTip="Give every tag in the table this scan rate, replacing whatever each row was set to"
+                        Click="ResetScanRatesButton_Click"/>
+            </StackPanel>
+        </Border>
+
+
+        <!-- ===================== Recording bar ===================== -->
+        <Border Grid.Row="2" Background="{StaticResource Brush.PanelDeep}"
+                BorderBrush="{StaticResource Brush.Border}" BorderThickness="0,0,0,1"
+                Padding="10,6">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+
+                <!-- Mode. Unchecked is Current, checked is Playback. -->
+                <TextBlock x:Name="CurrentModeLabel" Text="Current" Style="{StaticResource ModeLabel}"
+                           Margin="0,0,8,0"/>
+                <ToggleButton x:Name="ModeSwitch" Style="{StaticResource ModeSwitch}"
+                              ToolTip="Current watches the controller live. Playback replays a recorded run."
+                              Checked="ModeSwitch_Changed" Unchecked="ModeSwitch_Changed"/>
+                <TextBlock x:Name="PlaybackModeLabel" Text="Playback" Style="{StaticResource ModeLabel}"/>
+
+                <Rectangle Width="1" Margin="14,2" Fill="{StaticResource Brush.Border}"/>
+
+                <!-- The two mode panels live on top of each other and slide past, so only one is
+                     ever in view. Both stay Visible on purpose: a collapsed panel measures as
+                     nothing, and this host would then resize and jog the whole bar every time the
+                     mode changed. Whichever one is out of view is disabled instead, which keeps it
+                     out of the tab order without touching layout. -->
+                <Grid x:Name="ModePanelHost" ClipToBounds="True" VerticalAlignment="Center">
+
+                <!-- Recording, shown while the mode is Current. -->
+                <StackPanel x:Name="RecordingPanel" Orientation="Horizontal" VerticalAlignment="Center"
+                            HorizontalAlignment="Left">
+                    <StackPanel.RenderTransform>
+                        <TranslateTransform x:Name="RecordingShift"/>
+                    </StackPanel.RenderTransform>
+                    <Button x:Name="RecordButton" Style="{StaticResource LightButton}"
+                            ToolTip="Start recording every state change in the table"
+                            Click="RecordButton_Click">
+                        <controls:RecordLight x:Name="RecordLamp"/>
+                    </Button>
+
+                    <TextBlock x:Name="RecordElapsedText" Text="0.0s" Width="52"
+                               Margin="10,0,0,0" Style="{StaticResource ReadOnlyField}"
+                               ToolTip="How long the current run has been going"/>
+                    <TextBlock Text="/" Margin="8,0" VerticalAlignment="Center"
+                               Foreground="{StaticResource Brush.TextSecondary}"/>
+                    <TextBox x:Name="RecordMaxTextBox" Width="52" MaxLength="3"
+                             TextAlignment="Right" Text="60"
+                             ToolTip="Seconds to record before stopping and saving. 1 to 999."/>
+                    <TextBlock Text="s" Margin="6,0,0,0" VerticalAlignment="Center"
+                               Foreground="{StaticResource Brush.TextSecondary}"/>
+
+                    <Rectangle Width="1" Margin="14,2" Fill="{StaticResource Brush.Border}"/>
+
+                    <TextBlock Text="Name" Style="{StaticResource FieldLabel}"/>
+                    <TextBox x:Name="RecordNameTextBox" Width="180" Text="recording1"
+                             ToolTip="What this run is called inside the tag set file"/>
+                </StackPanel>
+
+                <!-- Playback, shown while the mode is Playback. -->
+                <StackPanel x:Name="PlaybackPanel" Orientation="Horizontal" VerticalAlignment="Center"
+                            HorizontalAlignment="Left">
+                    <StackPanel.RenderTransform>
+                        <TranslateTransform x:Name="PlaybackShift"/>
+                    </StackPanel.RenderTransform>
+                    <TextBlock Text="Run" Style="{StaticResource FieldLabel}" Margin="0,0,6,0"/>
+                    <ComboBox x:Name="RunCombo" Width="200" DisplayMemberPath="Name"
+                              ToolTip="Which recorded run to play"
+                              SelectionChanged="RunCombo_SelectionChanged"/>
+
+                    <Button x:Name="RenameRunButton" Content="Rename" MinWidth="70" Margin="8,0,0,0"
+                            IsEnabled="False"
+                            ToolTip="Give this run a different name"
+                            Click="RenameRunButton_Click"/>
+                    <Button x:Name="DeleteRunButton" Content="Delete" MinWidth="70" Margin="6,0,0,0"
+                            IsEnabled="False"
+                            ToolTip="Remove this run from the tag set file"
+                            Click="DeleteRunButton_Click"/>
+                    <Button x:Name="ExportRunButton" Content="Export CSV" MinWidth="88" Margin="6,0,0,0"
+                            IsEnabled="False"
+                            ToolTip="Write this run out as a spreadsheet, one row per instant"
+                            Click="ExportRunButton_Click"/>
+                </StackPanel>
+
+                </Grid>
+
+                <TextBlock x:Name="RecordStatusText" Margin="16,0,0,0" VerticalAlignment="Center"
+                           MaxWidth="360"
+                           Foreground="{StaticResource Brush.TextSecondary}"
+                           TextTrimming="CharacterEllipsis"/>
+            </StackPanel>
+        </Border>
+
+        <!-- ===================== Status line ===================== -->
+        <TextBlock x:Name="StatusText" Grid.Row="3" Margin="12,8"
+                   Text="enter an address to begin"
+                   Foreground="{StaticResource Brush.TextSecondary}"
+                   TextTrimming="CharacterEllipsis"/>
+
+        <!-- ===================== Browser left, monitor table right ===================== -->
+        <Grid Grid.Row="4" Margin="10,0,10,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="BrowserColumn" Width="360" MinWidth="220"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*" MinWidth="320"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Tag tree -->
+            <Border Grid.Column="0"
+                    BorderBrush="{StaticResource Brush.Border}" BorderThickness="1"
+                    CornerRadius="3" Background="{StaticResource Brush.Background}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0" Margin="6,6,6,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="FilterTextBox" Grid.Column="0"
+                                 ToolTip="Type a name, then press the search button or Enter"/>
+                        <Button x:Name="SearchButton" Grid.Column="1"
+                                Width="30" MinHeight="30" Padding="0" Margin="6,0,0,0"
+                                IsEnabled="False"
+                                ToolTip="Search the tag tree. Leave the box empty to show everything again."
+                                Click="SearchButton_Click">
+                            <Path Data="M 6.5,2 A 4.5,4.5 0 1 0 6.51,2 Z M 10.2,10.2 L 13.5,13.5"
+                                  Stroke="{StaticResource Brush.TextPrimary}" StrokeThickness="1.5"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                  Width="16" Height="16" Stretch="None"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Button>
+                        <Button x:Name="AddSelectedButton" Grid.Column="2"
+                                Width="30" MinHeight="30" Padding="0" Margin="6,0,0,0"
+                                IsEnabled="False"
+                                Style="{StaticResource AccentButton}"
+                                ToolTip="Add the selected tags to the monitor table"
+                                Click="AddSelectedButton_Click">
+                            <Path Data="M 3,8 L 12,8 M 8,4 L 12,8 L 8,12"
+                                  Stroke="#FFFFFFFF" StrokeThickness="1.6"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                  Width="16" Height="16" Stretch="None"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Button>
+                        <Button x:Name="RefreshTagsButton" Grid.Column="3" Content="⟳"
+                                Width="30" MinHeight="30" Padding="0" Margin="6,0,0,0"
+                                IsEnabled="False"
+                                ToolTip="Browse the controller's tags again"
+                                Click="RefreshTagsButton_Click"/>
+                    </Grid>
+
+                    <TreeView x:Name="TagTree" Grid.Row="1">
+                        <TreeView.ItemContainerStyle>
+                            <Style TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
+                                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+                            </Style>
+                        </TreeView.ItemContainerStyle>
+                        <TreeView.ItemTemplate>
+                            <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                                <!-- Selection is painted from the data, not from TreeViewItem.IsSelected,
+                                     because a WPF TreeView only ever selects one item at a time. -->
+                                <Border x:Name="RowBorder" Background="Transparent"
+                                        CornerRadius="2" Padding="3,1" Margin="0,1">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding Glyph}" Margin="0,0,6,0"
+                                                   Foreground="{StaticResource Brush.TextSecondary}"/>
+                                        <TextBlock Text="{Binding Name}"/>
+                                        <TextBlock Text="{Binding TypeName}" Margin="8,0,0,0"
+                                                   Foreground="{StaticResource Brush.TextDisabled}"/>
+                                    </StackPanel>
+                                </Border>
+                                <HierarchicalDataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                        <Setter TargetName="RowBorder" Property="Background"
+                                                Value="{StaticResource Brush.SelectedRow}"/>
+                                    </DataTrigger>
+                                </HierarchicalDataTemplate.Triggers>
+                            </HierarchicalDataTemplate>
+                        </TreeView.ItemTemplate>
+                    </TreeView>
+
+                    <!-- Over the tree, for the same reason the table has one: an empty pane with
+                         one line of grey text at the very bottom looks broken rather than idle. -->
+                    <TextBlock x:Name="EmptyTreeHint" Grid.Row="1" IsHitTestVisible="False"
+                               Margin="20,64,20,0" TextAlignment="Center" TextWrapping="Wrap"
+                               Foreground="{StaticResource Brush.TextDisabled}"
+                               Text="Not connected."/>
+
+                    <TextBlock x:Name="BrowseStatusText" Grid.Row="2" Margin="8,4,8,6"
+                               Text="connect to browse tags"
+                               Foreground="{StaticResource Brush.TextSecondary}"
+                               TextTrimming="CharacterEllipsis"/>
+                </Grid>
+            </Border>
+
+            <GridSplitter Grid.Column="1" Margin="3,0"/>
+
+            <!-- Monitor table -->
+            <Border Grid.Column="2"
+                    BorderBrush="{StaticResource Brush.Border}" BorderThickness="1"
+                    CornerRadius="3" Background="{StaticResource Brush.Background}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0" Margin="6,6,6,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*" MinWidth="120"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Button x:Name="StartButton" Grid.Column="0" Content="Start"
+                                MinWidth="70" IsEnabled="False"
+                                Style="{StaticResource AccentButton}"
+                                ToolTip="Begin polling every tag in the table"
+                                Click="StartButton_Click"/>
+                        <Button x:Name="StopButton" Grid.Column="1" Content="Stop"
+                                MinWidth="70" Margin="6,0,0,0" IsEnabled="False"
+                                ToolTip="Stop polling"
+                                Click="StopButton_Click"/>
+
+                        <Rectangle Grid.Column="2" Width="1" Margin="12,2"
+                                   Fill="{StaticResource Brush.Border}"/>
+
+                        <TextBox x:Name="TagEntryBox" Grid.Column="3"
+                                 ToolTip="Type a tag name. After three characters it suggests matches: Up and Down pick one, Enter or Tab fills it in, and Enter again adds it to the table."/>
+
+                        <Button x:Name="AddTagButton" Grid.Column="4" Content="+"
+                                Width="30" MinHeight="30" Padding="0" Margin="6,0,0,0"
+                                FontSize="15" IsEnabled="False"
+                                ToolTip="Add the typed tag to the table"
+                                Click="AddTagButton_Click"/>
+                        <Button x:Name="RemoveTagButton" Grid.Column="5" Content="–"
+                                Width="30" MinHeight="30" Padding="0" Margin="6,0,0,0"
+                                FontSize="15" IsEnabled="False"
+                                ToolTip="Remove the selected rows from the table"
+                                Click="RemoveTagButton_Click"/>
+
+                        <TextBlock x:Name="TableSummaryText" Grid.Column="6"
+                                   Margin="14,0,4,0" VerticalAlignment="Center"
+                                   Text="0 tags, 0 bytes"
+                                   Foreground="{StaticResource Brush.TextSecondary}"/>
+                    </Grid>
+
+                    <DataGrid x:Name="MonitorGrid" Grid.Row="1"
+                              AutoGenerateColumns="False"
+                              SelectionMode="Extended" SelectionUnit="FullRow"
+                              CanUserAddRows="False" CanUserDeleteRows="False" CanUserResizeRows="False"
+                              HeadersVisibility="Column" GridLinesVisibility="Horizontal">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Tag" Binding="{Binding Address}"
+                                                IsReadOnly="True" Width="2*" MinWidth="140"/>
+                            <DataGridTextColumn Header="Value" Binding="{Binding Value}"
+                                                IsReadOnly="True" Width="100"
+                                                HeaderStyle="{StaticResource ColumnHeaderRight}">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="TextAlignment" Value="Right"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding HasError}" Value="True">
+                                                <Setter Property="Foreground" Value="{StaticResource Brush.StatusFault}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                            <DataGridTextColumn Header="Description" Binding="{Binding Description}"
+                                                IsReadOnly="True" Width="2*" MinWidth="120"/>
+                            <DataGridTextColumn Header="Datatype" Binding="{Binding DataType}"
+                                                IsReadOnly="True" Width="90"/>
+                            <DataGridTextColumn Header="Scan (ms)" Binding="{Binding ScanRateMs, UpdateSourceTrigger=LostFocus}"
+                                                Width="80"
+                                                HeaderStyle="{StaticResource ColumnHeaderRight}">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="TextAlignment" Value="Right"/>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                        </DataGrid.Columns>
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+                                <Setter Property="ToolTip" Value="{Binding Error}"/>
+                            </Style>
+                        </DataGrid.RowStyle>
+                    </DataGrid>
+
+                    <!-- Over the grid rather than behind it, since the grid paints its own
+                         background. Shown only while the table is empty. -->
+                    <TextBlock x:Name="EmptyTableHint" Grid.Row="1" IsHitTestVisible="False"
+                               Margin="24,64,24,0" TextAlignment="Center" TextWrapping="Wrap"
+                               Foreground="{StaticResource Brush.TextDisabled}"
+                               Text="No tags yet. Choose them in the tree and press the arrow, or type a name above."/>
+                </Grid>
+            </Border>
+        </Grid>
+
+
+        <!-- ===================== Scrub bar ===================== -->
+        <!-- Bottom of the window, full width, collapsed unless the mode is Playback. Transport and
+             times on the first line, the activity strip and the slider on the second, so a pixel of
+             drag is worth as little time as possible. -->
+        <!-- The host's height is what animates. The bar is pinned to the host's top and clipped,
+             so as the host grows the bar rises into view from below rather than being revealed
+             from the bottom up. A collapsed host takes no space at all. -->
+        <Grid x:Name="ScrubBarHost" Grid.Row="5" ClipToBounds="True" Height="0">
+        <Border x:Name="ScrubBar" VerticalAlignment="Top" Visibility="Collapsed"
+                Background="{StaticResource Brush.PanelDeep}"
+                BorderBrush="{StaticResource Brush.Border}" BorderThickness="0,1,0,0"
+                Padding="10,6,10,8">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Transport and times -->
+                <Grid Grid.Row="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="PlayPauseButton" Width="34" MinHeight="30" Padding="0"
+                                Style="{StaticResource AccentButton}"
+                                ToolTip="Play or pause. Space does the same."
+                                Click="PlayPauseButton_Click">
+                            <Path x:Name="PlayGlyph" Fill="#FFFFFFFF"
+                                  Data="M 5,3 L 13,8 L 5,13 Z"
+                                  Width="16" Height="16" Stretch="None"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Button>
+
+                        <ComboBox x:Name="SpeedCombo" Width="72" Margin="8,0,0,0"
+                                  ToolTip="Playback speed"
+                                  SelectionChanged="SpeedCombo_SelectionChanged">
+                            <ComboBoxItem Content="0.25x" Tag="0.25"/>
+                            <ComboBoxItem Content="0.5x" Tag="0.5"/>
+                            <ComboBoxItem Content="1x" Tag="1" IsSelected="True"/>
+                            <ComboBoxItem Content="2x" Tag="2"/>
+                            <ComboBoxItem Content="5x" Tag="5"/>
+                            <ComboBoxItem Content="10x" Tag="10"/>
+                        </ComboBox>
+
+                        <Rectangle Width="1" Margin="12,2" Fill="{StaticResource Brush.Border}"/>
+
+                        <Button x:Name="PreviousChangeButton" Width="34" MinHeight="30" Padding="0"
+                                ToolTip="Jump to the previous state change. Left arrow does the same."
+                                Click="PreviousChangeButton_Click">
+                            <Path Data="M 11,3 L 5,8 L 11,13 Z M 4,3 L 4,13"
+                                  Fill="{StaticResource Brush.TextPrimary}"
+                                  Stroke="{StaticResource Brush.TextPrimary}" StrokeThickness="1.4"
+                                  Width="16" Height="16" Stretch="None"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Button>
+                        <Button x:Name="NextChangeButton" Width="34" MinHeight="30" Padding="0" Margin="6,0,0,0"
+                                ToolTip="Jump to the next state change. Right arrow does the same."
+                                Click="NextChangeButton_Click">
+                            <Path Data="M 5,3 L 11,8 L 5,13 Z M 12,3 L 12,13"
+                                  Fill="{StaticResource Brush.TextPrimary}"
+                                  Stroke="{StaticResource Brush.TextPrimary}" StrokeThickness="1.4"
+                                  Width="16" Height="16" Stretch="None"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Button>
+
+                        <Rectangle Width="1" Margin="12,2" Fill="{StaticResource Brush.Border}"/>
+
+                        <TextBlock Text="At" Style="{StaticResource FieldLabel}"/>
+                        <TextBox x:Name="PositionTextBox" Width="92" TextAlignment="Right"
+                                 FontFamily="Consolas, Courier New, monospace"
+                                 ToolTip="Where the bar sits, as m:ss.fff. Type a time and press Enter to jump there."/>
+                        <TextBlock x:Name="DurationText" Margin="8,0,0,0" VerticalAlignment="Center"
+                                   Foreground="{StaticResource Brush.TextSecondary}"
+                                   FontFamily="Consolas, Courier New, monospace"
+                                   Text="of 0:00.000"/>
+
+                        <Rectangle Width="1" Margin="12,2" Fill="{StaticResource Brush.Border}"/>
+
+                        <TextBlock x:Name="ClockText" VerticalAlignment="Center"
+                                   Foreground="{StaticResource Brush.TextPrimary}"
+                                   FontFamily="Consolas, Courier New, monospace"
+                                   ToolTip="Wall clock time at this point of the run"
+                                   Text="--:--:--.---"/>
+
+                        <Rectangle Width="1" Margin="12,2" Fill="{StaticResource Brush.Border}"/>
+
+                        <!-- Cropping. The handles on the strip choose the window; these act on it.
+                             Undo is last so nothing shifts when it appears. -->
+                        <Button x:Name="CropButton" Content="Crop" MinWidth="66"
+                                IsEnabled="False"
+                                ToolTip="Show only the part between the orange handles. Nothing is saved until Overwrite or Save New."
+                                Click="CropButton_Click"/>
+                        <Button x:Name="OverwriteRunButton" Content="Overwrite" MinWidth="82" Margin="6,0,0,0"
+                                IsEnabled="False"
+                                ToolTip="Replace this recording with the cropped one"
+                                Click="OverwriteRunButton_Click"/>
+                        <Button x:Name="SaveNewRunButton" Content="Save New" MinWidth="82" Margin="6,0,0,0"
+                                IsEnabled="False"
+                                ToolTip="Keep this recording and add the cropped one beside it"
+                                Click="SaveNewRunButton_Click"/>
+                        <Button x:Name="UndoCropButton" Content="Undo" MinWidth="66" Margin="6,0,0,0"
+                                Visibility="Collapsed"
+                                ToolTip="Step back to before the last crop"
+                                Click="UndoCropButton_Click"/>
+                    </StackPanel>
+
+                    <TextBlock x:Name="PlaybackInfoText" Grid.Column="2" VerticalAlignment="Center"
+                               Margin="12,0,0,0"
+                               Foreground="{StaticResource Brush.TextSecondary}"
+                               TextTrimming="CharacterEllipsis"/>
+                </Grid>
+
+                <!-- Where changes actually happened. Brighter means busier. The crop layer sits on
+                     top with the same margins, so a time maps to the same x on both, and those
+                     margins line both up with the slider's travel. -->
+                <Grid Grid.Row="1" Panel.ZIndex="1">
+                    <Canvas x:Name="DensityStrip" Height="14" Margin="6,8,6,0"
+                            Background="Transparent" ClipToBounds="True"
+                            ToolTip="Where state changes happened during the run. A REAL or LREAL that moves less than 0.1 is not shown here."
+                            SizeChanged="DensityStrip_SizeChanged"/>
+
+                    <Canvas x:Name="CropLayer" Height="14" Margin="6,8,6,0" ClipToBounds="False"
+                            SizeChanged="CropLayer_SizeChanged">
+                        <Rectangle x:Name="CropShadeLeft" Height="14" Width="0"
+                                   Fill="{StaticResource Brush.CropShade}" IsHitTestVisible="False"/>
+                        <Rectangle x:Name="CropShadeRight" Height="14" Width="0"
+                                   Fill="{StaticResource Brush.CropShade}" IsHitTestVisible="False"/>
+
+                        <Thumb x:Name="CropInHandle" Style="{StaticResource CropHandle}" Canvas.Top="-4"
+                               ToolTip="Start of the crop. Drag it, or press [ to put it at the playhead."
+                               DragStarted="CropHandle_DragStarted"
+                               DragDelta="CropHandle_DragDelta"
+                               DragCompleted="CropHandle_DragCompleted"/>
+                        <Thumb x:Name="CropOutHandle" Style="{StaticResource CropHandle}" Canvas.Top="-4"
+                               ToolTip="End of the crop. Drag it, or press ] to put it at the playhead."
+                               DragStarted="CropHandle_DragStarted"
+                               DragDelta="CropHandle_DragDelta"
+                               DragCompleted="CropHandle_DragCompleted"/>
+                    </Canvas>
+                </Grid>
+
+                <Slider x:Name="ScrubSlider" Grid.Row="2" Margin="0,2,0,0"
+                        Minimum="0" Maximum="1000" SmallChange="100" LargeChange="1000"
+                        IsMoveToPointEnabled="True"
+                        ValueChanged="ScrubSlider_ValueChanged"/>
+            </Grid>
+        </Border>
+        </Grid>
+
+        <!-- Suggestion list for the tag entry box, positioned in code. -->
+        <Popup x:Name="SuggestionPopup" Placement="Bottom" AllowsTransparency="True"
+               StaysOpen="False" Focusable="False" PopupAnimation="None">
+            <Border Background="{StaticResource Brush.Panel}"
+                    BorderBrush="{StaticResource Brush.Border}" BorderThickness="1"
+                    CornerRadius="3">
+                <ListBox x:Name="SuggestionList" MaxHeight="220" MinWidth="240"
+                         Background="Transparent" BorderThickness="0"
+                         Foreground="{StaticResource Brush.TextPrimary}"/>
+            </Border>
+        </Popup>
+    </Grid>
+</Window>

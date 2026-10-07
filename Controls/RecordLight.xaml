@@ -1,0 +1,10 @@
+<UserControl x:Class="OpcUaPlayground.Controls.RecordLight"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Focusable="False">
+    <Grid Width="20" Height="20">
+        <Ellipse x:Name="Halo" Margin="0" Opacity="0"/>
+        <Ellipse x:Name="Lamp" Margin="3"
+                 Stroke="{StaticResource Brush.Border}" StrokeThickness="1"/>
+    </Grid>
+</UserControl>
