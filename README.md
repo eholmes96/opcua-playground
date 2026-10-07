@@ -153,3 +153,7 @@ start the app normally and connect to `127.0.0.1`, slot 0.
 - Arrays show at most 512 elements in the tree.
 - Descriptions come only from a CSV export. The tab-separated TXT export isn't supported.
 - Tag sets saved by 0.8.1 or later use file format version 4, which 0.8.0 and older can't open.
+
+## Credits
+
+App icon by [Icons8](https://icons8.com).
