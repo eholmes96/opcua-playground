@@ -543,7 +543,8 @@
                 <!-- Where changes actually happened. Brighter means busier. The crop layer sits on
                      top with the same margins, so a time maps to the same x on both, and those
                      margins line both up with the slider's travel. -->
-                <Grid Grid.Row="1" Panel.ZIndex="1">
+                <!-- Transparent, so a press in its margins still scrubs; see ScrubSurface_*. -->
+                <Grid x:Name="ScrubStripArea" Grid.Row="1" Panel.ZIndex="1" Background="Transparent">
                     <Canvas x:Name="DensityStrip" Height="14" Margin="6,8,6,0"
                             Background="Transparent" ClipToBounds="True"
                             ToolTip="Where state changes happened during the run. A REAL or LREAL that moves less than 0.1 is not shown here."

@@ -30,8 +30,8 @@ public static class SelfTest
             RoutePathVectors, UnconnectedSendFraming, IdentityParsing, StatusDecoding,
             EncapsulationFraming, TagPathsAndValues, ReadOnlyGuard, TagSetFiles, Recordings,
             RecordingBaseline, Playback, Crop, RecordedClock, Csv, TagDescriptionImport,
-            TreeSelection, DescriptionsMenu, SavedController, StripDeadband, EntrySuggestions,
-            Updates,
+            TreeSelection, DescriptionsMenu, SavedController, StripDeadband, StripTooltips,
+            EntrySuggestions, Updates,
         };
 
         foreach (var section in sections) Guarded(section);
@@ -312,6 +312,72 @@ public static class SelfTest
             mixed.StepTimes.SequenceEqual(new[] { 0, 2000 }));
         Check("the CSV export keeps a row for every recorded instant",
             mixed.ChangeTimes.SequenceEqual(new[] { 0, 1000, 2000 }));
+    }
+
+    // ===================== Strip tooltips =====================
+
+    /// <summary>
+    /// A line on the strip names the tags that drew it: those with a change in its bucket that
+    /// clears the deadband, in table order, and no others.
+    /// </summary>
+    private static void StripTooltips()
+    {
+        Section("strip tooltips");
+
+        var run = TagPlayback.Load(new RecordedSession
+        {
+            Name = "tooltips",
+            DurationMs = 10_000,
+            Tags =
+            {
+                new RecordedTag { Address = "TagA", DataType = "DINT", ScanRateMs = 100 },
+                new RecordedTag { Address = "TagB", DataType = "REAL", ScanRateMs = 100 },
+                new RecordedTag { Address = "TagC", DataType = "BOOL", ScanRateMs = 100 },
+            },
+            Changes =
+            {
+                "0|0|v|1", "0|1|v|20.00", "0|2|v|False",
+                "3333|0|v|5", "3400|0|v|6",             // either side of a bucket edge when there are three
+                "4000|2|v|True", "4000|0|v|2",          // C written first; the list is still in table order
+                "4500|1|v|20.03",                       // B only jitters: inside the deadband
+                "7000|1|v|21.00",
+                "9999|0|v|3", "10000|2|v|False",        // the last instant lands in the last bucket
+            },
+        });
+
+        List<string> Names(int bucket, int buckets) =>
+            run.TagsInBucket(bucket, buckets).Select(i => run.Tags[i].Address).ToList();
+
+        Check("a line lists the tags that changed there, one each, in table order",
+            Names(4, 10).SequenceEqual(new[] { "TagA", "TagC" }));
+        Check("a REAL that only jittered isn't listed", Names(4, 10).Count == 2 && !Names(4, 10).Contains("TagB"));
+        Check("a line drawn by one tag lists only that tag", Names(7, 10).SequenceEqual(new[] { "TagB" }));
+        Check("the baseline at the start lists every tag", Names(0, 10).SequenceEqual(new[] { "TagA", "TagB", "TagC" }));
+        Check("the end of the run falls in the last line", Names(9, 10).SequenceEqual(new[] { "TagA", "TagC" }));
+        Check("an empty stretch lists nothing", Names(2, 10).Count == 0);
+        Check("an out-of-range bucket lists nothing", Names(10, 10).Count == 0 && Names(-1, 10).Count == 0);
+
+        // Whatever the strip's width, a line lists something exactly where the strip draws one.
+        bool agrees = true;
+        foreach (int buckets in new[] { 1, 3, 7, 10, 64, 333, 1000 })
+        {
+            var counts = run.Density(buckets);
+            for (int b = 0; b < buckets; b++)
+                agrees &= (counts[b] > 0) == (run.TagsInBucket(b, buckets).Count > 0);
+        }
+        Check("tooltips and drawn lines agree at every strip width", agrees);
+
+        // With three buckets over 10 s, 3333 ms is the last instant of the first and 3400 ms falls
+        // in the second. The second line is drawn by 3400 alone and must still name its tag.
+        var edge = TagPlayback.Load(new RecordedSession
+        {
+            Name = "edge",
+            DurationMs = 10_000,
+            Tags = { new RecordedTag { Address = "Edge", DataType = "DINT", ScanRateMs = 100 } },
+            Changes = { "0|0|v|1", "3333|0|v|2", "3400|0|v|3" },
+        });
+        Check("a change just past a line's edge still names its tag",
+            edge.Density(3)[1] == 1 && edge.TagsInBucket(1, 3).SequenceEqual(new[] { 0 }));
     }
 
     // ===================== Saved controller =====================

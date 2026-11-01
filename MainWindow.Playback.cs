@@ -45,12 +45,27 @@ public partial class MainWindow
     /// <summary>Set while code is moving the slider, so its own event does not seek again.</summary>
     private bool _seeking;
 
+    /// <summary>The bucket count the strip was last drawn with, so a line's tooltip can name its tags.</summary>
+    private int _densityBuckets;
+
+    /// <summary>Longest list a line's tooltip shows before "and N more".</summary>
+    private const int MaxTooltipTags = 25;
+
     private void InitialisePlayback()
     {
         _playTick.Tick += (_, _) => OnPlayTick();
         PositionTextBox.PreviewKeyDown += PositionTextBox_PreviewKeyDown;
         PreviewKeyDown += Playback_PreviewKeyDown;
         Closed += (_, _) => PausePlayback();
+
+        // The strip and the slider are one surface for scrubbing: a press anywhere on either puts
+        // the playhead there, and it follows the pointer until the button comes up.
+        foreach (var surface in new UIElement[] { ScrubStripArea, ScrubSlider })
+        {
+            surface.PreviewMouseLeftButtonDown += ScrubSurface_PreviewMouseLeftButtonDown;
+            surface.PreviewMouseMove += ScrubSurface_PreviewMouseMove;
+            surface.PreviewMouseLeftButtonUp += ScrubSurface_PreviewMouseLeftButtonUp;
+        }
     }
 
     // ===================== Entering and leaving =====================
@@ -236,6 +251,46 @@ public partial class MainWindow
         SeekTo((int)e.NewValue);
     }
 
+    // ===================== Scrubbing with the mouse =====================
+
+    /// <summary>
+    /// A press on the strip or the slider, anywhere but on a crop handle, takes the playhead to the
+    /// pointer. The slider's own handling is bypassed: on its own it jumps on a click but only drags
+    /// from the knob. Times come from <see cref="MsAt"/>, the same mapping the crop handles use.
+    /// </summary>
+    private void ScrubSurface_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (_playback is null || !ScrubSlider.IsEnabled) return;
+
+        // The crop handles keep their own drag.
+        if (e.OriginalSource is DependencyObject source
+            && FindAncestor<System.Windows.Controls.Primitives.Thumb>(source) is { } thumb
+            && (ReferenceEquals(thumb, CropInHandle) || ReferenceEquals(thumb, CropOutHandle)))
+            return;
+
+        var surface = (UIElement)sender;
+        if (!surface.CaptureMouse()) return;
+
+        ScrubSlider.Focus();        // out of the time field, so it shows the new position
+        PausePlayback();
+        SeekTo(MsAt(e.GetPosition(CropLayer).X));
+        e.Handled = true;
+    }
+
+    private void ScrubSurface_PreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (sender is not UIElement { IsMouseCaptured: true }) return;
+        SeekTo(MsAt(e.GetPosition(CropLayer).X));
+        e.Handled = true;
+    }
+
+    private void ScrubSurface_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not UIElement { IsMouseCaptured: true } surface) return;
+        surface.ReleaseMouseCapture();
+        e.Handled = true;
+    }
+
     private void PreviousChangeButton_Click(object sender, RoutedEventArgs e) => StepChange(-1);
 
     private void NextChangeButton_Click(object sender, RoutedEventArgs e) => StepChange(1);
@@ -394,6 +449,7 @@ public partial class MainWindow
         if (_playback is null || width < 1 || _playback.ChangeCount == 0) return;
 
         int buckets = Math.Max(1, (int)(width / DensityBucketWidth));
+        _densityBuckets = buckets;
         var counts = _playback.Density(buckets);
         int peak = counts.Max();
         if (peak == 0) return;
@@ -411,12 +467,31 @@ public partial class MainWindow
                 Height = DensityStrip.Height,
                 Fill = brush,
                 Opacity = 0.18 + 0.82 * Math.Sqrt(counts[i] / (double)peak),
+                Tag = i,
+                ToolTip = "",       // filled in when it opens; a tooltip has to exist to open
             };
+            bar.ToolTipOpening += DensityBar_ToolTipOpening;
 
             Canvas.SetLeft(bar, i * bucketWidth);
             Canvas.SetTop(bar, 0);
             DensityStrip.Children.Add(bar);
         }
+    }
+
+    /// <summary>
+    /// A line's tooltip lists the tags whose changes drew it, one per line, in table order. Worked
+    /// out when it opens rather than for every line up front.
+    /// </summary>
+    private void DensityBar_ToolTipOpening(object sender, ToolTipEventArgs e)
+    {
+        if (sender is not Rectangle { Tag: int bucket } bar || _playback is null) { e.Handled = true; return; }
+
+        var tags = _playback.TagsInBucket(bucket, _densityBuckets);
+        if (tags.Count == 0) { e.Handled = true; return; }
+
+        var lines = tags.Take(MaxTooltipTags).Select(i => _playback.Tags[i].Address).ToList();
+        if (tags.Count > MaxTooltipTags) lines.Add($"and {tags.Count - MaxTooltipTags} more");
+        bar.ToolTip = string.Join(Environment.NewLine, lines);
     }
 
     // ===================== Keys =====================

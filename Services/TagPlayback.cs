@@ -31,6 +31,10 @@ public sealed class TagPlayback
     /// <summary>Distinct times of changes that clear the deadband. What the step buttons walk.</summary>
     private readonly int[] _stepTimes;
 
+    /// <summary>Per tag, the times of its changes that clear the deadband, ascending. What says
+    /// which tags are behind a line on the strip.</summary>
+    private readonly int[][] _shownTimesByTag;
+
     /// <summary>
     /// How far a REAL or LREAL has to move from the last value that counted before the density
     /// strip and the step buttons show it as a change. The user asked for 0.1, so sensor jitter
@@ -48,6 +52,7 @@ public sealed class TagPlayback
         bool[][] errors,
         int[] allTimes,
         int[] shownTimes,
+        int[][] shownTimesByTag,
         int durationMs,
         int skipped)
     {
@@ -59,6 +64,7 @@ public sealed class TagPlayback
         _errors = errors;
         _allTimes = allTimes;
         _shownTimes = shownTimes;
+        _shownTimesByTag = shownTimesByTag;
         _stepTimes = shownTimes.Distinct().ToArray();
         DurationMs = durationMs;
         SkippedLines = skipped;
@@ -116,9 +122,11 @@ public sealed class TagPlayback
         var texts = new string[tagCount][];
         var errors = new bool[tagCount][];
         var shownTimes = new List<int>();
+        var shownTimesByTag = new int[tagCount][];
 
         for (int i = 0; i < tagCount; i++)
         {
+            var shownForTag = new List<int>();
             // The recorder writes in order, but a file that has been edited by hand might not be.
             // OrderBy is stable, so two changes at the same instant keep the order they were
             // written in and the later one still wins.
@@ -136,8 +144,11 @@ public sealed class TagPlayback
                     continue;
 
                 shownTimes.Add(change.Time);
+                shownForTag.Add(change.Time);
                 lastCounted = (change.IsError, change.Text);
             }
+
+            shownTimesByTag[i] = shownForTag.ToArray();
         }
 
         allTimes.Sort();
@@ -145,7 +156,7 @@ public sealed class TagPlayback
         int lastChange = allTimes.Count == 0 ? 0 : allTimes[^1];
 
         return new TagPlayback(
-            session, times, texts, errors, allTimes.ToArray(), shownTimes.ToArray(),
+            session, times, texts, errors, allTimes.ToArray(), shownTimes.ToArray(), shownTimesByTag,
             Math.Max(session.DurationMs, lastChange), skipped);
     }
 
@@ -221,13 +232,38 @@ public sealed class TagPlayback
         }
 
         foreach (int time in _shownTimes)
-        {
-            int bucket = (int)((long)time * buckets / DurationMs);
-            counts[Math.Clamp(bucket, 0, buckets - 1)]++;
-        }
+            counts[BucketOf(time, buckets)]++;
 
         return counts;
     }
+
+    /// <summary>
+    /// Which tags are behind one bucket of <see cref="Density"/>: the indexes of the tags with a
+    /// change in it that clears the deadband, in table order. Uses the same bucketing as the
+    /// strip, so a line always lists exactly the tags that drew it. Asked for one bucket at a time,
+    /// when a tooltip opens, at a cost of one binary search per tag.
+    /// </summary>
+    public IReadOnlyList<int> TagsInBucket(int bucket, int buckets)
+    {
+        if (buckets < 1) buckets = 1;
+        var found = new List<int>();
+        if (bucket < 0 || bucket >= buckets) return found;
+
+        // The earliest time that can land in this bucket: the smallest t with t * buckets / D >= bucket.
+        long from = DurationMs <= 0 ? 0 : ((long)bucket * DurationMs + buckets - 1) / buckets;
+
+        for (int tag = 0; tag < _shownTimesByTag.Length; tag++)
+        {
+            var times = _shownTimesByTag[tag];
+            int first = IndexAtOrBefore(times, (int)Math.Min(from - 1, int.MaxValue)) + 1;
+            if (first < times.Length && BucketOf(times[first], buckets) == bucket) found.Add(tag);
+        }
+
+        return found;
+    }
+
+    private int BucketOf(int time, int buckets) =>
+        DurationMs <= 0 ? 0 : Math.Clamp((int)((long)time * buckets / DurationMs), 0, buckets - 1);
 
     /// <summary>
     /// The last index whose time is at or before <paramref name="ms"/>, or -1.
