@@ -22,7 +22,7 @@
     <Product>OPC UA Playground</Product>
     <AssemblyTitle>OPC UA Playground</AssemblyTitle>
     <Description>Browse, monitor and record Logix controller tags over EtherNet/IP. Read only.</Description>
-    <Version>0.8.4</Version>
+    <Version>0.9.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
