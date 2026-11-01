@@ -329,6 +329,6 @@ public partial class MainWindow
 
     private void MainWindow_Closing(object? sender, CancelEventArgs e)
     {
-        if (!ConfirmDiscard()) e.Cancel = true;
+        if (!ConfirmDiscard() || !InstallPendingUpdate()) e.Cancel = true;
     }
 }

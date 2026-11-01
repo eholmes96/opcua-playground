@@ -33,7 +33,15 @@
         </Grid.RowDefinitions>
 
         <!-- ===================== Menu ===================== -->
-        <Menu Grid.Row="0" BorderThickness="0">
+        <!-- The update button sits at the far right, under the window's own minimize button. -->
+        <Grid Grid.Row="0" Background="{StaticResource Brush.PanelDeep}">
+        <Button x:Name="CheckUpdatesButton" HorizontalAlignment="Right" VerticalAlignment="Center"
+                Margin="0,0,8,0" Width="28" Height="24" Padding="0" FontSize="15"
+                Style="{StaticResource LightButton}" Content="↻"
+                AutomationProperties.Name="Check for updates"
+                ToolTip="Check GitHub for a newer version. Nothing is sent until you press this."
+                Click="CheckUpdatesButton_Click"/>
+        <Menu BorderThickness="0" HorizontalAlignment="Left">
             <MenuItem Header="_File">
                 <MenuItem x:Name="NewTagSetMenuItem" Header="_New tag set"
                           InputGestureText="Ctrl+N" Click="NewTagSet_Click"/>
@@ -54,6 +62,7 @@
                           Click="ImportDescriptions_Click"/>
             </MenuItem>
         </Menu>
+        </Grid>
 
         <!-- ===================== Toolbar ===================== -->
         <Border Grid.Row="1" Background="{StaticResource Brush.PanelDeep}"

@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Threading;
 using OpcUaPlayground.Dialogs;
+using OpcUaPlayground.Services;
 using OpcUaPlayground.Tools;
 
 namespace OpcUaPlayground;
@@ -79,17 +80,31 @@ public partial class App : Application
             return;
         }
 
+        // --update-feed <url>: try the update button against a feed on this machine. Loopback only.
+        int feed = Array.FindIndex(e.Args, a => string.Equals(a, "--update-feed", StringComparison.OrdinalIgnoreCase));
+        if (feed >= 0 && feed + 1 < e.Args.Length && UpdateSource.Loopback(e.Args[feed + 1]) is { } testFeed)
+            UpdateFeed = testFeed;
+
+        _ = UpdateInstaller.CleanUpAfterUpdateAsync(Environment.ProcessPath);
+
         base.OnStartup(e);
         new MainWindow().Show();
     }
 
+    /// <summary>Where the update button looks. GitHub, unless --update-feed named a loopback feed.</summary>
+    public static UpdateSource UpdateFeed { get; private set; } = UpdateSource.GitHub;
+
     private static bool Has(string[] args, string flag) =>
         args.Any(a => string.Equals(a, flag, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>WinExe has no console of its own; reuse the launching one where there is one.</summary>
+    /// <summary>
+    /// WinExe has no console of its own; reuse the launching one where there is one. When the
+    /// output is already redirected (the update check runs a downloaded exe's --selftest that
+    /// way), a new console window would only flash up empty, so none is made.
+    /// </summary>
     private static void AttachToConsole()
     {
-        if (!AttachConsole(-1)) AllocConsole();
+        if (!AttachConsole(-1) && !Console.IsOutputRedirected) AllocConsole();
     }
 
     private void Application_DispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)

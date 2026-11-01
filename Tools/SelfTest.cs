@@ -25,30 +25,154 @@ public static class SelfTest
         Console.WriteLine("OPC UA Playground protocol self test");
         Console.WriteLine();
 
-        RoutePathVectors();
-        UnconnectedSendFraming();
-        IdentityParsing();
-        StatusDecoding();
-        EncapsulationFraming();
-        TagPathsAndValues();
-        ReadOnlyGuard();
-        TagSetFiles();
-        Recordings();
-        RecordingBaseline();
-        Playback();
-        Crop();
-        RecordedClock();
-        Csv();
-        TagDescriptionImport();
-        TreeSelection();
-        DescriptionsMenu();
-        SavedController();
-        StripDeadband();
-        EntrySuggestions();
+        Action[] sections =
+        {
+            RoutePathVectors, UnconnectedSendFraming, IdentityParsing, StatusDecoding,
+            EncapsulationFraming, TagPathsAndValues, ReadOnlyGuard, TagSetFiles, Recordings,
+            RecordingBaseline, Playback, Crop, RecordedClock, Csv, TagDescriptionImport,
+            TreeSelection, DescriptionsMenu, SavedController, StripDeadband, EntrySuggestions,
+            Updates,
+        };
+
+        foreach (var section in sections) Guarded(section);
 
         Console.WriteLine();
         Console.WriteLine($"{_passed} passed, {_failed} failed");
         return _failed == 0;
+    }
+
+    /// <summary>
+    /// An exception inside a section is a failure, not the end of the run. Escaping instead would
+    /// reach the app's error dialog and leave a --selftest run waiting on it, and the update
+    /// button runs a downloaded exe's self test unseen.
+    /// </summary>
+    private static void Guarded(Action section)
+    {
+        try
+        {
+            section();
+        }
+        catch (Exception ex)
+        {
+            _failed++;
+            Console.WriteLine($"   FAIL  {section.Method.Name} stopped early: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    // ===================== Updates =====================
+
+    /// <summary>
+    /// The update button's decisions, without the network: what GitHub's reply means, when it is an
+    /// update, what is refused, and swapping the exe with a way back if the swap fails.
+    /// </summary>
+    private static void Updates()
+    {
+        Section("updates");
+
+        static Version V(string text) => UpdateCheck.TryParseVersion(text, out var v) ? v : new Version(9, 9, 9);
+
+        Check("a tag with a v reads as its version", UpdateCheck.TryParseVersion("v0.8.4", out var tagged) && tagged == new Version(0, 8, 4));
+        Check("the commit id .NET appends is ignored", V("0.8.4+ae27882093") == new Version(0, 8, 4));
+        Check("1.0 and 1.0.0 are the same version", V("1.0") == V("1.0.0"));
+        Check("text that isn't a version is refused", !UpdateCheck.TryParseVersion("latest", out _) && !UpdateCheck.TryParseVersion("", out _));
+        Check("this build knows its own version", UpdateCheck.CurrentVersion() > new Version(0, 0, 0));
+
+        var source = UpdateSource.GitHub;
+        string hash = new string('a', 64);
+        string Reply(string tag = "v0.9.0", string? name = null, string? url = null, string? digest = null,
+            bool draft = false, bool prerelease = false)
+        {
+            string version = tag.TrimStart('v');
+            name ??= $"OpcUaPlayground-{version}-win-x64.zip";
+            url ??= $"{source.DownloadPrefix}{tag}/{name}";
+            digest ??= $"sha256:{hash}";
+            return $$"""
+                { "tag_name": "{{tag}}", "html_url": "https://github.com/eholmes96/opcua-playground/releases/tag/{{tag}}",
+                  "draft": {{(draft ? "true" : "false")}}, "prerelease": {{(prerelease ? "true" : "false")}},
+                  "assets": [ { "name": "notes.txt", "browser_download_url": "{{source.DownloadPrefix}}{{tag}}/notes.txt", "digest": "sha256:{{hash}}", "size": 10 },
+                              { "name": "{{name}}", "browser_download_url": "{{url}}", "digest": "{{digest}}", "size": 66554169 } ] }
+                """;
+        }
+
+        var release = UpdateCheck.ParseLatest(Reply(), source, out _);
+        Check("GitHub's reply gives the version, the zip and its SHA-256",
+            release is { AssetName: "OpcUaPlayground-0.9.0-win-x64.zip", AssetSize: 66554169 }
+            && release.Version == new Version(0, 9, 0) && release.Sha256 == hash.ToUpperInvariant());
+
+        Check("a newer release is an update", release is not null && UpdateCheck.IsNewer(release, new Version(0, 8, 4)));
+        Check("the same version is not", release is not null && !UpdateCheck.IsNewer(release, new Version(0, 9, 0)));
+        Check("an older release is never offered as a downgrade", release is not null && !UpdateCheck.IsNewer(release, new Version(1, 0, 0)));
+        Check("0.10.0 counts as newer than 0.9.0, not alphabetically",
+            UpdateCheck.ParseLatest(Reply("v0.10.0"), source, out _) is { } ten && UpdateCheck.IsNewer(ten, new Version(0, 9, 0)));
+
+        Check("a release without a SHA-256 is refused",
+            UpdateCheck.ParseLatest(Reply(digest: ""), source, out string noHash) is null && noHash.Contains("SHA-256"));
+        Check("a malformed SHA-256 is refused", UpdateCheck.ParseLatest(Reply(digest: "sha256:1234"), source, out _) is null);
+        Check("a download outside this project's releases is refused",
+            UpdateCheck.ParseLatest(Reply(url: "https://example.com/OpcUaPlayground-0.9.0-win-x64.zip"), source, out _) is null);
+        Check("a download in another GitHub repo is refused",
+            UpdateCheck.ParseLatest(Reply(url: "https://github.com/someone/opcua-playground/releases/download/v0.9.0/OpcUaPlayground-0.9.0-win-x64.zip"), source, out _) is null);
+        Check("a release without this app's zip is refused",
+            UpdateCheck.ParseLatest(Reply(name: "Something-0.9.0.zip"), source, out _) is null);
+        Check("a zip named for another version is refused",
+            UpdateCheck.ParseLatest(Reply(name: "OpcUaPlayground-0.8.9-win-x64.zip"), source, out _) is null);
+        Check("drafts and pre-releases are refused",
+            UpdateCheck.ParseLatest(Reply(draft: true), source, out _) is null
+            && UpdateCheck.ParseLatest(Reply(prerelease: true), source, out _) is null);
+        Check("a reply that isn't JSON is refused, not thrown", UpdateCheck.ParseLatest("<html>", source, out _) is null);
+
+        Check("a test feed on this machine is accepted", UpdateSource.Loopback("http://localhost:8123/") is not null
+            && UpdateSource.Loopback("http://127.0.0.1:8123") is not null);
+        Check("a test feed anywhere else is refused", UpdateSource.Loopback("http://example.com/") is null
+            && UpdateSource.Loopback("http://192.0.2.10:8123/") is null && UpdateSource.Loopback("file:///C:/feed/") is null);
+
+        string folder = Path.Combine(Path.GetTempPath(), $"OpcUaPlayground-selftest-{Environment.ProcessId}");
+        Directory.CreateDirectory(folder);
+        try
+        {
+            string data = Path.Combine(folder, "data.bin");
+            File.WriteAllText(data, "abc");
+            const string abc = "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD";
+            Check("the SHA-256 check passes the right file, in either case",
+                UpdateCheck.HashMatches(data, abc) && UpdateCheck.HashMatches(data, abc.ToLowerInvariant()));
+            File.WriteAllText(data, "abd");
+            Check("and fails a changed one", !UpdateCheck.HashMatches(data, abc));
+
+            string app = Path.Combine(folder, "app.exe");
+            string download = Path.Combine(folder, "download.exe");
+            File.WriteAllText(app, "old build");
+            File.WriteAllText(download, "new build");
+            UpdateInstaller.Replace(app, download);
+            Check("installing puts the new exe under the old name and keeps the old one aside",
+                File.ReadAllText(app) == "new build" && File.ReadAllText(app + ".old") == "old build"
+                && !File.Exists(app + ".new"));
+
+            // Its own download folder, never the real one: an update runs this test from inside that.
+            string downloads = Path.Combine(folder, "downloads");
+            Directory.CreateDirectory(downloads);
+            UpdateInstaller.CleanUpAfterUpdateAsync(app, downloads).GetAwaiter().GetResult();
+            Check("the new copy removes the old exe and the download once it starts",
+                !File.Exists(app + ".old") && File.Exists(app) && !Directory.Exists(downloads));
+
+            Directory.CreateDirectory(downloads);
+            UpdateInstaller.CleanUpAfterUpdateAsync(app, downloads).GetAwaiter().GetResult();
+            Check("a start that isn't after an update leaves downloads alone", Directory.Exists(downloads));
+
+            File.WriteAllText(Path.Combine(downloads, "OpcUaPlayground-0.9.0-win-x64.zip"), "zip");
+            UpdateInstaller.DiscardDownload(downloads);
+            Check("a download that won't be installed is removed", !Directory.Exists(downloads));
+
+            File.WriteAllText(download, "broken build");
+            bool threw = false;
+            try { UpdateInstaller.Replace(app, download, () => throw new IOException("simulated")); }
+            catch (IOException) { threw = true; }
+            Check("a swap that fails halfway puts the working exe back",
+                threw && File.ReadAllText(app) == "new build" && !File.Exists(app + ".new") && !File.Exists(app + ".old"));
+        }
+        finally
+        {
+            try { Directory.Delete(folder, recursive: true); } catch { }
+        }
     }
 
     // ===================== Entry suggestions =====================

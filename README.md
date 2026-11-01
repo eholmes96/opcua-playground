@@ -18,7 +18,8 @@ It is **strictly read-only**. It never writes to a controller.
   Multiple_Service_Packet services that carry them. Anything else, or anything the guard can't
   parse, is refused.
 - There is no Write Tag and no Forward_Open, so the app never opens I/O connections.
-- Nothing goes on the network until you press **Connect**.
+- Nothing goes on the network until you press **Connect** (to the controller) or the **↻** update
+  button (to GitHub, see [Updating](#updating)). Nothing is sent at startup.
 
 Reading still puts load on the controller and its Ethernet module. Every tag in the table is read
 at its scan rate, and the app asks before adding more than 500 tags at once.
@@ -65,8 +66,22 @@ download first:
 Get-FileHash .\OpcUaPlayground.exe -Algorithm SHA256
 ```
 
-**To update,** replace the exe with the new one. **To uninstall,** delete the folder, and
-optionally `%APPDATA%\OpcUaPlayground`, which holds only the recent descriptions list.
+**To uninstall,** delete the folder, and optionally `%APPDATA%\OpcUaPlayground`, which holds only
+the recent descriptions list.
+
+### Updating
+
+Press **↻** at the right end of the menu bar. The app asks GitHub for the latest release and tells
+you in the status bar if you're up to date. If a newer version exists, it offers **Update**, which:
+
+1. downloads the release zip from this repository's Releases page,
+2. checks it against the SHA-256 checksum GitHub publishes for it, and runs the new version's own
+   self test,
+3. asks about unsaved changes, as closing does, then swaps in the new exe and restarts.
+
+If anything fails, nothing is installed and the current version keeps working. The app never
+checks by itself, and only ever contacts `api.github.com` and GitHub's release downloads. You can
+also update by hand: download the new zip and replace the exe.
 
 ## Quick start
 
@@ -143,6 +158,7 @@ The exe has a few command-line switches for development:
 | `--browse <ip> [slot]` | Prints the tag tree. |
 | `--watch <ip> [slot] [filter]` | Polls matching tags for 4 seconds and prints the values. |
 | `--play <file> [run] [ms ...]` | Prints a recorded run's values at given moments. |
+| `--update-feed <url>` | Points the update button at a test feed on this PC instead of GitHub. Loopback addresses only. |
 
 To try the app without a controller, run `OpcUaPlayground.exe --simulate` in one window, then
 start the app normally and connect to `127.0.0.1`, slot 0.
