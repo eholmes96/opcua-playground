@@ -1,10 +1,30 @@
 # OPC UA Playground
 
-A Windows desktop app for watching Rockwell Logix controllers (ControlLogix, CompactLogix,
-GuardLogix) over **EtherNet/IP**. Browse a controller's tags, put the ones you care about in a
-table, watch them live, record what changes, and play a recording back afterwards.
+A faster alternative to Studio 5000 trends that doesn't require PLC software. Connect to a
+ControlLogix or GuardLogix controller, select readable tags, import tag descriptions, and watch or
+even record every change with a millisecond timestamp. Enter playback mode to scrub through your
+recording and see exactly when each tag changes state.
 
 It is **strictly read-only**. It never writes to a controller.
+
+![Live monitoring: the tag tree on the left, and a table of BOOL, DINT and REAL tags polling at their own scan rates](docs/screenshots/live.png)
+
+![Playback: a recorded run paused at 0:23.400, with the activity strip marking every change along the bottom](docs/screenshots/playback.png)
+
+*Shown against the built-in simulator (`--simulate`), so the values are made up.*
+
+- **Browse and monitor live tags:** BOOLs, DINTs, REALs, arrays and UDT members, each with its
+  own scan rate.
+- **Record changes, not samples:** each recording keeps only the moments a value changed, with a
+  timestamp. A run stays small and every bit flip is easy to find.
+- **Scrub through playback:** an activity strip marks every change, and hovering a line lists the
+  tags that changed there. Jump from one change to the next, crop a run and export it to CSV.
+- **All data stays on your machine:** tag sets and recordings are saved as files on your
+  computer, with no cloud and no account. The only time the app goes online is when you press the
+  update button.
+- **Read-only, one file, no install:** the app has no way to write to the controller, so it's
+  safe to point at a running process. It's a single Windows exe that keeps itself up to date from
+  GitHub.
 
 > Despite the name, this is not an OPC UA client (yet). It talks to the controller directly over
 > EtherNet/IP/CIP, the same protocol Studio 5000 and RSLinx use, so it works with any firmware
