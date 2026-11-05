@@ -157,6 +157,7 @@ public partial class MainWindow
                 _playbackRows.Add(new MonitoredTag(tag.Address, tag.DataType, tag.ScanRateMs, 0)
                 {
                     Description = tag.Description ?? "",
+                    StripColor = _tagColors.Get(tag.Address),
                 });
         }
 
@@ -435,8 +436,12 @@ public partial class MainWindow
     private void DensityStrip_SizeChanged(object sender, SizeChangedEventArgs e) => DrawDensity();
 
     /// <summary>
-    /// One rectangle per horizontal bucket, brighter where more changed. Bucketing by pixel is what
+    /// One line per horizontal bucket, brighter where more changed. Bucketing by pixel is what
     /// keeps this cheap on a run holding hundreds of thousands of changes.
+    ///
+    /// A line is drawn in the colors of the tags behind it: one band per color, stacked top to
+    /// bottom in table order, all at the line's brightness. While every tag has the default blue
+    /// that is one band, the strip as it always looked.
     ///
     /// The count is square rooted before it becomes brightness, or one busy instant would flatten
     /// everything else to invisible.
@@ -454,27 +459,38 @@ public partial class MainWindow
         int peak = counts.Max();
         if (peak == 0) return;
 
+        var tagsByBucket = _playback.TagsByBucket(buckets);
+        var colors = _playback.Tags.Select(t => _tagColors.Get(t.Address)).ToArray();
+
         double bucketWidth = width / buckets;
-        var brush = (Brush)FindResource("Brush.Accent");
+        double height = DensityStrip.Height;
 
         for (int i = 0; i < buckets; i++)
         {
             if (counts[i] == 0) continue;
 
-            var bar = new Rectangle
-            {
-                Width = bucketWidth + 0.5,      // a hair of overlap, so there are no seams
-                Height = DensityStrip.Height,
-                Fill = brush,
-                Opacity = 0.18 + 0.82 * Math.Sqrt(counts[i] / (double)peak),
-                Tag = i,
-                ToolTip = "",       // filled in when it opens; a tooltip has to exist to open
-            };
-            bar.ToolTipOpening += DensityBar_ToolTipOpening;
+            double opacity = 0.18 + 0.82 * Math.Sqrt(counts[i] / (double)peak);
+            var bands = TagColor.BandColors(tagsByBucket[i], tag => colors[tag]);
+            if (bands.Count == 0) bands = new[] { TagColor.Default };
+            double bandHeight = height / bands.Count;
 
-            Canvas.SetLeft(bar, i * bucketWidth);
-            Canvas.SetTop(bar, 0);
-            DensityStrip.Children.Add(bar);
+            for (int b = 0; b < bands.Count; b++)
+            {
+                var bar = new Rectangle
+                {
+                    Width = bucketWidth + 0.5,      // a hair of overlap, so there are no seams
+                    Height = bandHeight,
+                    Fill = StripBrush(bands[b]),
+                    Opacity = opacity,
+                    Tag = i,
+                    ToolTip = "",       // filled in when it opens; a tooltip has to exist to open
+                };
+                bar.ToolTipOpening += DensityBar_ToolTipOpening;
+
+                Canvas.SetLeft(bar, i * bucketWidth);
+                Canvas.SetTop(bar, b * bandHeight);
+                DensityStrip.Children.Add(bar);
+            }
         }
     }
 

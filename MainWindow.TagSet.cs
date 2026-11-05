@@ -93,6 +93,7 @@ public partial class MainWindow
         if (!ConfirmDiscard()) return;
 
         _monitor.Stop();
+        _tagColors = new TagColorMap();
         ReplaceTags(Array.Empty<TagSetEntry>());
         _recordings = new List<RecordedSession>();
         OnRecordingsReplaced();
@@ -129,6 +130,7 @@ public partial class MainWindow
         }
 
         _monitor.Stop();
+        _tagColors = TagColorMap.FromStored(document.TagColors);
         ReplaceTags(document.Tags);
 
         _recordings = document.Recordings.ToList();
@@ -209,6 +211,11 @@ public partial class MainWindow
             ScanRateMs = t.ScanRateMs,
             Description = string.IsNullOrEmpty(t.Description) ? null : t.Description,
         }).ToList(),
+
+        // Only for tags the file still holds, in the table or in a run.
+        TagColors = _tagColors.ToStored(
+            _monitor.Tags.Select(t => t.Address)
+                .Concat(_recordings.SelectMany(r => r.Tags.Select(t => t.Address)))),
     };
 
     private void ReplaceTags(IReadOnlyList<TagSetEntry> entries)
@@ -231,6 +238,7 @@ public partial class MainWindow
                     entry.Address, entry.DataType, entry.ScanRateMs, EstimateSize(entry.DataType))
                 {
                     Description = entry.Description ?? "",
+                    StripColor = _tagColors.Get(entry.Address),
                 };
 
                 // Said plainly on the row, rather than left as a blank value nobody can explain.

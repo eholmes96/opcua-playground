@@ -31,7 +31,7 @@ public static class SelfTest
             EncapsulationFraming, TagPathsAndValues, ReadOnlyGuard, TagSetFiles, Recordings,
             RecordingBaseline, Playback, Crop, RecordedClock, Csv, TagDescriptionImport,
             TreeSelection, DescriptionsMenu, SavedController, StripDeadband, StripTooltips,
-            EntrySuggestions, Updates,
+            EntrySuggestions, Updates, TagColors, Palette, TagSetColors, StripColors,
         };
 
         foreach (var section in sections) Guarded(section);
@@ -378,6 +378,303 @@ public static class SelfTest
         });
         Check("a change just past a line's edge still names its tag",
             edge.Density(3)[1] == 1 && edge.TagsInBucket(1, 3).SequenceEqual(new[] { 0 }));
+    }
+
+    // ===================== Tag colors =====================
+
+    /// <summary>
+    /// A tag's strip color: "#RRGGBB" in and out, the HSV arithmetic behind the wheel, and the map
+    /// that holds one color per tag name for the whole set.
+    /// </summary>
+    private static void TagColors()
+    {
+        Section("tag colors");
+
+        static System.Windows.Media.Color Rgb(byte r, byte g, byte b) => System.Windows.Media.Color.FromRgb(r, g, b);
+        static bool Same(System.Windows.Media.Color a, System.Windows.Media.Color b) => TagColor.SameRgb(a, b);
+
+        Check("the default is the strip's blue, #3399FF", TagColor.Format(TagColor.Default) == "#3399FF");
+        Check("#RRGGBB reads in either case",
+            TagColor.TryParse("#3399ff", out var parsed) && Same(parsed, Rgb(0x33, 0x99, 0xFF))
+            && TagColor.TryParse(" #F85149 ", out var spaced) && Same(spaced, Rgb(0xF8, 0x51, 0x49)));
+        Check("a color is written as upper-case #RRGGBB", TagColor.Format(Rgb(10, 171, 255)) == "#0AABFF");
+        Check("anything other than #RRGGBB is refused",
+            new[] { null, "", "3399FF", "#39F", "#3399FFAA", "#GG0000", "# 3399F", "red" }
+                .All(text => !TagColor.TryParse(text, out _)));
+
+        var (h, s, v) = TagColor.ToHsv(Rgb(255, 0, 0));
+        Check("red is hue 0, fully saturated and bright", h == 0 && s == 1 && v == 1);
+        (h, s, v) = TagColor.ToHsv(Rgb(0, 0, 128));
+        Check("navy is hue 240 at half brightness", Math.Abs(h - 240) < 1e-9 && s == 1 && Math.Abs(v - 128 / 255.0) < 1e-9);
+        Check("HSV to RGB lands on the primaries and secondaries",
+            Same(TagColor.FromHsv(120, 1, 1), Rgb(0, 255, 0)) && Same(TagColor.FromHsv(240, 1, 0.5), Rgb(0, 0, 128))
+            && Same(TagColor.FromHsv(60, 1, 1), Rgb(255, 255, 0)) && Same(TagColor.FromHsv(300, 0.5, 1), Rgb(255, 128, 255)));
+        Check("hue wraps round both ways",
+            Same(TagColor.FromHsv(360, 1, 1), Rgb(255, 0, 0)) && Same(TagColor.FromHsv(-60, 1, 1), Rgb(255, 0, 255)));
+
+        int worst = 0;
+        for (int r = 0; r <= 255; r += 15)
+            for (int g = 0; g <= 255; g += 15)
+                for (int b = 0; b <= 255; b += 15)
+                {
+                    var color = Rgb((byte)r, (byte)g, (byte)b);
+                    var (hh, ss, vv) = TagColor.ToHsv(color);
+                    var back = TagColor.FromHsv(hh, ss, vv);
+                    worst = Math.Max(worst, Math.Max(Math.Abs(back.R - r), Math.Max(Math.Abs(back.G - g), Math.Abs(back.B - b))));
+                }
+        Check("RGB to HSV and back is within 1 on every channel", worst <= 1, $"worst {worst}");
+
+        var (x, y) = TagColor.WheelPoint(0, 1, 100);
+        var (x2, y2) = TagColor.WheelPoint(90, 1, 100);
+        Check("on the wheel red is at the right and hue 90 at the top",
+            Math.Abs(x - 100) < 1e-9 && Math.Abs(y) < 1e-9 && Math.Abs(x2) < 1e-9 && Math.Abs(y2 + 100) < 1e-9);
+        var (wh, ws) = TagColor.FromWheelPoint(0, -50, 100);
+        Check("halfway up the wheel is hue 90 at half saturation", Math.Abs(wh - 90) < 1e-9 && Math.Abs(ws - 0.5) < 1e-9);
+        Check("past the rim counts as the rim, and the centre is grey",
+            TagColor.FromWheelPoint(300, 0, 100) == (0, 1) && TagColor.FromWheelPoint(0, 0, 100) == (0, 0));
+
+        bool wheelRoundTrip = true;
+        for (int hue = 0; hue < 360; hue += 7)
+            foreach (double sat in new[] { 0.25, 0.5, 1.0 })
+            {
+                var (px, py) = TagColor.WheelPoint(hue, sat, 120);
+                var (bh, bs) = TagColor.FromWheelPoint(px, py, 120);
+                wheelRoundTrip &= Math.Abs(bh - hue) < 1e-6 && Math.Abs(bs - sat) < 1e-9;
+            }
+        Check("a point on the wheel reads back as the hue and saturation it came from", wheelRoundTrip);
+
+        var red = Rgb(0xF8, 0x51, 0x49);
+        var green = Rgb(0x3F, 0xB9, 0x50);
+        var colorsByTag = new[] { TagColor.Default, red, TagColor.Default, green, red };
+        Check("a line gets one band per color, in table order",
+            TagColor.BandColors(new[] { 0, 1, 2, 3, 4 }, i => colorsByTag[i])
+                .Select(TagColor.Format).SequenceEqual(new[] { "#3399FF", "#F85149", "#3FB950" }));
+        Check("a line of tags that all have the default is one band, as before",
+            TagColor.BandColors(new[] { 0, 2 }, i => colorsByTag[i]).Count == 1);
+        Check("the band order follows the table, not the color", TagColor.BandColors(new[] { 3, 1 }, i => colorsByTag[i])
+            .Select(TagColor.Format).SequenceEqual(new[] { "#3FB950", "#F85149" }));
+
+        var map = new TagColorMap();
+        Check("a tag with no color has the default", Same(map.Get("Pump"), TagColor.Default) && !map.IsSet("Pump"));
+        Check("setting a color reports a change", map.Set("Pump", red));
+        Check("a color is found whatever the case of the name", Same(map.Get("PUMP"), red) && map.IsSet("pump"));
+        Check("setting the same color again changes nothing", !map.Set("pump", red) && map.Count == 1);
+        Check("setting the default takes the color away", map.Set("Pump", TagColor.Default) && map.Count == 0);
+        map.Set("Pump", red);
+        Check("null takes the color away too", map.Set("Pump", null) && map.Count == 0);
+        Check("a blank name can't have a color", !map.Set("  ", red) && map.Count == 0);
+        Check("an empty map stores nothing, so the file leaves it out", map.ToStored() is null);
+
+        map.Set("Pump", red);
+        map.Set("Valve", green);
+        var stored = map.ToStored(new[] { "pump", "Level" });
+        Check("only tags the file still holds keep their color",
+            stored is { Count: 1 } && stored.TryGetValue("Pump", out string? kept) && kept == "#F85149");
+
+        var read = TagColorMap.FromStored(new Dictionary<string, string>
+        {
+            ["Pump"] = "#f85149", ["Bad"] = "blue", [""] = "#000000", ["Default"] = "#3399FF",
+        });
+        Check("reading back skips a color that doesn't read, a blank name and the default",
+            read.Count == 1 && Same(read.Get("pump"), red));
+    }
+
+    // ===================== Palette =====================
+
+    /// <summary>
+    /// The picker's 6 by 6 palette: presets, saving a color, clearing, reset, and the file in
+    /// %APPDATA%, which these checks never touch. They use a temp folder of their own.
+    /// </summary>
+    private static void Palette()
+    {
+        Section("color palette");
+
+        static System.Windows.Media.Color Rgb(byte r, byte g, byte b) => System.Windows.Media.Color.FromRgb(r, g, b);
+        static string Text(System.Windows.Media.Color? c) => c is { } color ? TagColor.Format(color) : "-";
+        static bool AsShipped(ColorPalette p) =>
+            p.Slots.Take(ColorPalette.Presets.Count).Select(Text).SequenceEqual(ColorPalette.Presets.Select(c => Text(c)))
+            && p.Slots.Skip(ColorPalette.Presets.Count).All(s => s is null);
+
+        var palette = ColorPalette.Defaults();
+        Check("the palette is 6 by 6", palette.Slots.Count == 36 && ColorPalette.Columns == 6 && ColorPalette.Rows == 6);
+        Check("the first four rows are 24 different presets, starting with the default blue",
+            ColorPalette.Presets.Count == 24 && ColorPalette.Presets.Select(c => Text(c)).Distinct().Count() == 24
+            && Text(palette.Slots[0]) == "#3399FF");
+        Check("the last two rows start empty", AsShipped(palette) && palette.Slots.Count(s => s is null) == 12);
+
+        var mint = Rgb(0x40, 0xE0, 0xD0);
+        Check("saving a color fills the first empty square",
+            palette.SaveColor(mint, null, out _) == 24 && Text(palette.Slots[24]) == "#40E0D0");
+        Check("the next save takes the next empty square", palette.SaveColor(mint, 3, out _) == 25);
+        Check("a selected empty square is used before the first empty one",
+            palette.SaveColor(Rgb(1, 2, 3), 30, out _) == 30 && Text(palette.Slots[30]) == "#010203" && palette.Slots[26] is null);
+
+        while (palette.Slots.Any(s => s is null)) palette.SaveColor(Rgb(9, 9, 9), null, out _);
+        Check("a full palette with nothing selected refuses, and says why",
+            palette.SaveColor(mint, null, out string? problem) is null && !string.IsNullOrEmpty(problem));
+        Check("a full palette replaces the selected square",
+            palette.SaveColor(mint, 5, out _) == 5 && Text(palette.Slots[5]) == "#40E0D0" && Text(palette.Slots[4]) == "#3FB950");
+        Check("clearing a square empties it", palette.Clear(5) && palette.Slots[5] is null);
+        Check("clearing an empty or missing square does nothing", !palette.Clear(5) && !palette.Clear(-1) && !palette.Clear(36));
+        palette.Reset();
+        Check("reset puts back the presets and empties the last two rows", AsShipped(palette));
+
+        string folder = Path.Combine(Path.GetTempPath(), $"OpcUaPlayground-selftest-palette-{Environment.ProcessId}");
+        string file = Path.Combine(folder, "color-palette.json");
+        try
+        {
+            if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
+
+            Check("no palette file means the palette as it ships", AsShipped(ColorPalette.Load(file)));
+
+            var saved = ColorPalette.Defaults();
+            saved.SaveColor(mint, null, out _);
+            saved.Clear(0);
+            saved.Save(file);
+            var loaded = ColorPalette.Load(file);
+            Check("a saved palette reads back square for square",
+                loaded.Slots.Select(Text).SequenceEqual(saved.Slots.Select(Text)) && loaded.Slots[0] is null);
+
+            File.WriteAllText(file, "{ not json");
+            Check("an unreadable palette file means the palette as it ships", AsShipped(ColorPalette.Load(file)));
+
+            File.WriteAllText(file, """{ "version": 1, "slots": [ "#FF0000", null, "blue" ] }""");
+            var shortList = ColorPalette.Load(file);
+            Check("a short list is padded with empty squares, and a bad entry is empty",
+                shortList.Slots.Count == 36 && Text(shortList.Slots[0]) == "#FF0000"
+                && shortList.Slots.Skip(1).All(s => s is null));
+
+            File.WriteAllText(file, "{ \"slots\": [" + string.Join(",", Enumerable.Repeat("\"#00FF00\"", 40)) + "] }");
+            var longList = ColorPalette.Load(file);
+            Check("a long list is cut to 36", longList.Slots.Count == 36 && longList.Slots.All(s => Text(s) == "#00FF00"));
+        }
+        finally
+        {
+            try { Directory.Delete(folder, recursive: true); } catch { }
+        }
+    }
+
+    // ===================== Tag set colors =====================
+
+    /// <summary>
+    /// Colors in a tag set file: they round trip, an odd value is dropped rather than refusing
+    /// the file, the version stays at 4 (the user's choice), and writing only the runs keeps them.
+    /// </summary>
+    private static void TagSetColors()
+    {
+        Section("tag set colors");
+
+        var document = new TagSetDocument
+        {
+            Tags = { new TagSetEntry { Address = "Pump", DataType = "BOOL", ScanRateMs = 100 } },
+            TagColors = new Dictionary<string, string> { ["Pump"] = "#F85149" },
+        };
+        string json = TagSetFile.Serialize(document);
+        var back = TagSetFile.Deserialize(json);
+        Check("colors are written to the file and read back",
+            json.Contains("\"tagColors\"") && back.TagColors is { Count: 1 } && back.TagColors["Pump"] == "#F85149");
+        Check("a file with colors is still version 4", TagSetDocument.CurrentVersion == 4 && back.Version == 4);
+        Check("a set with no colors leaves the field out",
+            !TagSetFile.Serialize(new TagSetDocument()).Contains("tagColors", StringComparison.OrdinalIgnoreCase));
+
+        const string odd = """
+            { "format": "opcua-playground.tagset", "version": 4,
+              "tags": [ { "address": "Pump", "dataType": "BOOL", "scanRateMs": 100 } ],
+              "tagColors": { "Pump": "#f85149", "Bad": "blue", "Number": 5, "Nested": { "a": 1 }, "": "#000000" } }
+            """;
+        var cleaned = Catch(() => TagSetFile.Deserialize(odd)) is null ? TagSetFile.Deserialize(odd) : null;
+        Check("odd colors are dropped and the file still opens",
+            cleaned is { Tags.Count: 1, TagColors.Count: 1 } && cleaned.TagColors!["Pump"] == "#F85149");
+
+        const string notAnObject = """
+            { "format": "opcua-playground.tagset", "version": 4,
+              "tags": [ { "address": "Pump", "dataType": "BOOL", "scanRateMs": 100 } ], "tagColors": [ 1, 2 ] }
+            """;
+        var noMap = Catch(() => TagSetFile.Deserialize(notAnObject)) is null ? TagSetFile.Deserialize(notAnObject) : null;
+        Check("a color map that isn't an object reads as no colors", noMap is { Tags.Count: 1, TagColors: null });
+
+        const string before = """
+            { "format": "opcua-playground.tagset", "version": 4,
+              "tags": [ { "address": "Pump", "dataType": "BOOL", "scanRateMs": 100 } ] }
+            """;
+        Check("a file saved before colors opens with none", TagSetFile.Deserialize(before) is { Tags.Count: 1, TagColors: null });
+
+        string folder = Path.Combine(Path.GetTempPath(), $"OpcUaPlayground-selftest-colors-{Environment.ProcessId}");
+        try
+        {
+            Directory.CreateDirectory(folder);
+            string path = Path.Combine(folder, "colors" + TagSetFile.Extension);
+            TagSetFile.Save(path, document);
+            TagSetFile.SaveRecordings(path, new[]
+            {
+                new RecordedSession { Name = "run", Tags = { new RecordedTag { Address = "Pump", DataType = "BOOL" } } },
+            });
+            var reloaded = TagSetFile.Load(path);
+            Check("writing only the runs keeps the colors on disk",
+                reloaded.Recordings.Count == 1 && reloaded.TagColors is { Count: 1 } && reloaded.TagColors["Pump"] == "#F85149");
+        }
+        finally
+        {
+            try { Directory.Delete(folder, recursive: true); } catch { }
+        }
+    }
+
+    // ===================== Strip colors =====================
+
+    /// <summary>
+    /// Drawing the strip in tag colors asks for every line's tags at once. That has to agree
+    /// exactly with what a single line's tooltip lists.
+    /// </summary>
+    private static void StripColors()
+    {
+        Section("strip colors");
+
+        var run = TagPlayback.Load(new RecordedSession
+        {
+            Name = "colors",
+            DurationMs = 10_000,
+            Tags =
+            {
+                new RecordedTag { Address = "TagA", DataType = "DINT", ScanRateMs = 100 },
+                new RecordedTag { Address = "TagB", DataType = "REAL", ScanRateMs = 100 },
+                new RecordedTag { Address = "TagC", DataType = "BOOL", ScanRateMs = 100 },
+            },
+            Changes =
+            {
+                "0|0|v|1", "0|1|v|20.00", "0|2|v|False",
+                "3333|0|v|5", "3400|0|v|6",
+                "4000|2|v|True", "4000|0|v|2", "4010|0|v|3",
+                "4500|1|v|20.03",
+                "7000|1|v|21.00",
+                "9999|0|v|3", "10000|2|v|False",
+            },
+        });
+
+        bool agrees = true;
+        foreach (int buckets in new[] { 1, 3, 7, 10, 64, 333, 1000 })
+        {
+            var all = run.TagsByBucket(buckets);
+            agrees &= all.Length == buckets;
+            for (int b = 0; b < buckets && agrees; b++)
+                agrees &= all[b].SequenceEqual(run.TagsInBucket(b, buckets));
+        }
+        Check("every line's tags at once match each line's tooltip, at every width", agrees);
+
+        var ten = run.TagsByBucket(10);
+        Check("a line lists each tag once, in table order", ten[4].SequenceEqual(new[] { 0, 2 }));
+        Check("a REAL inside the deadband draws no band", !ten[4].Contains(1) && ten[7].SequenceEqual(new[] { 1 }));
+        Check("an empty stretch has no tags", ten[2].Count == 0);
+        Check("no buckets asked for is treated as one", run.TagsByBucket(0) is { Length: 1 } one && one[0].Count == 3);
+
+        var instant = TagPlayback.Load(new RecordedSession
+        {
+            Name = "instant",
+            DurationMs = 0,
+            Tags = { new RecordedTag { Address = "Only", DataType = "DINT", ScanRateMs = 100 } },
+            Changes = { "0|0|v|1" },
+        });
+        Check("a zero-length run puts everything in the first line",
+            instant.TagsByBucket(5) is var spread && spread[0].SequenceEqual(new[] { 0 }) && spread.Skip(1).All(b => b.Count == 0));
     }
 
     // ===================== Saved controller =====================

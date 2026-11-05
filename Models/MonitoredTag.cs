@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Windows.Media;
 
 namespace OpcUaPlayground.Models;
 
@@ -58,6 +59,25 @@ public sealed class MonitoredTag : INotifyPropertyChanged
         get => _scanRateMs;
         set => Set(ref _scanRateMs, Math.Clamp(value, MinScanRateMs, MaxScanRateMs));
     }
+
+    private Color _stripColor = TagColor.Default;
+
+    /// <summary>
+    /// This tag's color on the playback strip, shown in the swatch at the left of its row. Held
+    /// for the whole tag set by name in a <see cref="TagColorMap"/>; the row only carries a copy
+    /// to show.
+    /// </summary>
+    public Color StripColor
+    {
+        get => _stripColor;
+        set
+        {
+            if (Set(ref _stripColor, value)) OnPropertyChanged(nameof(StripColorText));
+        }
+    }
+
+    /// <summary>"#RRGGBB", which the swatch reports to UI Automation.</summary>
+    public string StripColorText => TagColor.Format(_stripColor);
 
     /// <summary>Size of the value itself, which is what the table's byte total sums.</summary>
     public int ByteCount

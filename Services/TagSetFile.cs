@@ -102,6 +102,9 @@ public static class TagSetFile
         // A run with no name cannot be found again or overwritten, so it is not a run.
         document.Recordings = document.Recordings.Where(r => r.Name.Length > 0).ToList();
 
+        // A color that does not read is dropped, not a reason to refuse the tags.
+        document.TagColors = TagColorMap.FromStored(document.TagColors).ToStored();
+
         // Version 2 stamped a run when it stopped. The recorder took the stamp and the duration at
         // the same moment, so the start is exactly one duration earlier. A run with no stamp at all
         // is left alone: there is nothing to correct, and the minimum date cannot go backwards.

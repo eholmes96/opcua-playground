@@ -272,7 +272,11 @@ public partial class MainWindow
             foreach (var node in wanted)
             {
                 var tag = new MonitoredTag(
-                    node.Address, node.TypeName, defaultRate, EstimateSize(node.TypeName));
+                    node.Address, node.TypeName, defaultRate, EstimateSize(node.TypeName))
+                {
+                    // A tag colored in a recording keeps that color when it comes back to the table.
+                    StripColor = _tagColors.Get(node.Address),
+                };
 
                 // A tag added after an import should not be the one blank row in the table.
                 if (_descriptions.TryFind(node.Address, out string description, out _))

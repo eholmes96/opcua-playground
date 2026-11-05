@@ -375,6 +375,49 @@
                               CanUserAddRows="False" CanUserDeleteRows="False" CanUserResizeRows="False"
                               HeadersVisibility="Column" GridLinesVisibility="Horizontal">
                         <DataGrid.Columns>
+                            <!-- The tag's color on the playback strip. Half as wide as a row is
+                                 tall, the full row height, and dimmed until hovered so it stays
+                                 quiet. Works in both modes: a color is display only. -->
+                            <DataGridTemplateColumn Width="13" MinWidth="13" CanUserResize="False"
+                                                    CanUserSort="False" CanUserReorder="False">
+                                <DataGridTemplateColumn.CellStyle>
+                                    <!-- The usual cell centres its content, which would shrink the
+                                         swatch to nothing: this one fills the cell. -->
+                                    <Style TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
+                                        <Setter Property="Padding" Value="0"/>
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="DataGridCell">
+                                                    <ContentPresenter/>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </DataGridTemplateColumn.CellStyle>
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Click="ColorSwatch_Click" Focusable="False" Cursor="Hand"
+                                                ToolTip="Color on the playback strip. Click to change."
+                                                AutomationProperties.Name="{Binding Address, StringFormat=Color for {0}}"
+                                                AutomationProperties.ItemStatus="{Binding StripColorText}">
+                                            <Button.Template>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Rectangle x:Name="Swatch" Opacity="0.8">
+                                                        <Rectangle.Fill>
+                                                            <SolidColorBrush Color="{Binding StripColor}"/>
+                                                        </Rectangle.Fill>
+                                                    </Rectangle>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter TargetName="Swatch" Property="Opacity" Value="1"/>
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Button.Template>
+                                        </Button>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
                             <DataGridTextColumn Header="Tag" Binding="{Binding Address}"
                                                 IsReadOnly="True" Width="2*" MinWidth="140"/>
                             <DataGridTextColumn Header="Value" Binding="{Binding Value}"

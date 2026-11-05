@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace OpcUaPlayground.Models;
 
 /// <summary>
@@ -33,7 +35,11 @@ public sealed class TagSetDocument
     ///    and an older build would show a version 3 file's times early, so it refuses them.
     /// 4: the saved controller also names the network adapter it was reached through, so opening
     ///    the set can point the window back at it. A version 3 reader would drop the adapter on its
-    ///    next save, and the user chose to have older builds refuse these files instead.</summary>
+    ///    next save, and the user chose to have older builds refuse these files instead.
+    ///
+    /// Tag colors (<see cref="TagColors"/>) did not move the version. The user chose that: an older
+    /// build opens the file and only loses the colors if it saves it, which is cosmetic, where
+    /// refusing would lock them out of their tags and recordings.</summary>
     public const int CurrentVersion = 4;
 
     /// <summary>The first version whose runs are stamped with their start rather than their stop.</summary>
@@ -65,6 +71,14 @@ public sealed class TagSetDocument
     /// so a set and its history travel together as one thing.
     /// </summary>
     public List<RecordedSession> Recordings { get; set; } = new();
+
+    /// <summary>
+    /// Each tag's color on the playback strip, "#RRGGBB" by tag name, for tags that have one other
+    /// than the default blue. One color per name covers the table and every recording. Left out
+    /// of the file when no tag has a color.
+    /// </summary>
+    [JsonConverter(typeof(LenientStringMapConverter))]
+    public Dictionary<string, string>? TagColors { get; set; }
 }
 
 /// <summary>Which controller the set was built against. No credentials, no session state.</summary>

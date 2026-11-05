@@ -262,6 +262,33 @@ public sealed class TagPlayback
         return found;
     }
 
+    /// <summary>
+    /// <see cref="TagsInBucket"/> for every bucket at once, which is what drawing the strip in each
+    /// tag's color needs. One pass over the counted changes, so it costs what <see cref="Density"/>
+    /// costs rather than a search per tag per bucket. Each bucket lists its tags in table order.
+    /// </summary>
+    public IReadOnlyList<int>[] TagsByBucket(int buckets)
+    {
+        if (buckets < 1) buckets = 1;
+        var found = new List<int>?[buckets];
+
+        for (int tag = 0; tag < _shownTimesByTag.Length; tag++)
+        {
+            // A tag's times are ascending, so its buckets are too: one check against the last
+            // bucket it was added to keeps it from being listed twice.
+            int last = -1;
+            foreach (int time in _shownTimesByTag[tag])
+            {
+                int bucket = BucketOf(time, buckets);
+                if (bucket == last) continue;
+                (found[bucket] ??= new List<int>()).Add(tag);
+                last = bucket;
+            }
+        }
+
+        return found.Select(list => (IReadOnlyList<int>?)list ?? Array.Empty<int>()).ToArray();
+    }
+
     private int BucketOf(int time, int buckets) =>
         DurationMs <= 0 ? 0 : Math.Clamp((int)((long)time * buckets / DurationMs), 0, buckets - 1);
 

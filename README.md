@@ -17,8 +17,9 @@ It is **strictly read-only**. It never writes to a controller.
   own scan rate.
 - **Record changes, not samples:** each recording keeps only the moments a value changed, with a
   timestamp. A run stays small and every bit flip is easy to find.
-- **Scrub through playback:** an activity strip marks every change, and hovering a line lists the
-  tags that changed there. Jump from one change to the next, crop a run and export it to CSV.
+- **Scrub through playback:** an activity strip marks every change in each tag's own color, and
+  hovering a line lists the tags that changed there. Jump from one change to the next, crop a run
+  and export it to CSV.
 - **All data stays on your machine:** tag sets and recordings are saved as files on your
   computer, with no cloud and no account. The only time the app goes online is when you press the
   update button.
@@ -57,6 +58,11 @@ at its scan rate, and the app asks before adding more than 500 tags at once.
   changes, not samples, so long quiet stretches cost nothing.
 - **Play back.** Scrub through a run, play it at 0.25x to 10x, and jump from change to change. A
   strip under the bar shows where changes happened.
+- **Tag colors.** Click the small swatch at the left of a row to give that tag its own color on
+  the strip. Pick from a palette, a color wheel or RGB sliders, or type the R, G and B values. When
+  tags with different colors change at the same moment, the line is split into a band for each.
+  Every tag starts in the standard blue. Colors are saved in the tag set; the palette, including
+  colors you save to it, is kept for you on this PC and can be reset.
 - **Crop.** Keep only the part of a run that matters, either replacing the run or saving the
   crop beside it.
 - **Export.** Write a run out as CSV, one row per instant.
@@ -87,7 +93,7 @@ Get-FileHash .\OpcUaPlayground.exe -Algorithm SHA256
 ```
 
 **To uninstall,** delete the folder, and optionally `%APPDATA%\OpcUaPlayground`, which holds only
-the recent descriptions list.
+the recent descriptions list and your color palette.
 
 ### Updating
 
